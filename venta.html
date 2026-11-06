@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Farmacia JN — Punto de Venta</title>
+  <link rel="manifest" href="manifest-venta.json">
+  <meta name="theme-color" content="#0e1a2e">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Farmacia JN">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="venta.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="logo">FARMACIA <span>JN</span></div>
+  <span id="chipRed" class="chip chip-ok">En línea</span>
+  <div class="who">Vendedora: <strong id="hdrVendedor">—</strong></div>
+</header>
+<div id="updateBanner" class="banner" hidden>Hay una versión nueva de la aplicación. <button id="updateBtn" type="button">Actualizar</button></div>
+<div id="cacheBanner" class="banner warn" hidden>Sin conexión: usando el catálogo guardado en este dispositivo.</div>
+
+<main class="layout">
+  <!-- ═════════ COLUMNA IZQUIERDA: VENTA ═════════ -->
+  <section class="col-main">
+    <div class="card search-box">
+      <label class="lbl-accent" for="buscador">🔍 Buscar producto</label>
+      <div class="row">
+        <input type="search" id="buscador" placeholder="Nombre o código de barras…" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+        <button class="btn-scan" id="btnScan" type="button" aria-label="Escanear código de barras">📷</button>
+      </div>
+      <div id="estadoBusqueda" class="muted small" role="status" aria-live="polite"></div>
+      <div id="sugerencias" role="listbox" hidden></div>
+    </div>
+
+    <div id="scannerBox" class="card scanner-box" hidden>
+      <div class="video-wrap"><video id="video" playsinline muted></video><div class="reticle"></div></div>
+      <p id="scanMsg" class="muted small">Apunta la cámara al código de barras.</p>
+      <button type="button" id="btnScanClose" class="btn-ghost">Cerrar cámara</button>
+    </div>
+
+    <div id="productoPanel" class="card prod-panel" hidden>
+      <div class="prod-nombre" id="pNombre">—</div>
+      <div class="muted small" id="pCodigo">—</div>
+      <div class="prices">
+        <div><span class="muted small">Precio normal</span><b id="pNormal">$0.00</b></div>
+        <div><span class="muted small">Con descuento</span><b id="pDesc">$0.00</b></div>
+        <div class="aplica"><span class="muted small" id="pAplicaLbl">Se cobra</span><b id="pAplica">$0.00</b></div>
+      </div>
+      <div class="qty-row">
+        <label class="lbl-sm" for="pCant">Cantidad</label>
+        <div class="qty">
+          <button type="button" class="qbtn" id="pMenos" aria-label="Menos">−</button>
+          <input id="pCant" type="number" inputmode="numeric" min="1" max="999" value="1">
+          <button type="button" class="qbtn" id="pMas" aria-label="Más">+</button>
+        </div>
+        <div class="importe"><span class="muted small">Importe</span><b id="pImporte">$0.00</b></div>
+      </div>
+      <button class="btn-primary" id="btnAgregar" type="button">➕ Agregar a la venta</button>
+    </div>
+
+    <div class="sec-head"><h2>Venta actual</h2><span class="badge" id="badgeCount">0</span></div>
+    <div class="card cart" id="cart">
+      <div id="cartRows"><div class="empty">Agrega productos para comenzar</div></div>
+    </div>
+
+    <div class="card totals">
+      <div class="trow"><span>Subtotal</span><span id="lblSubtotal">$0.00</span></div>
+      <div class="trow"><span>Descuentos</span><span id="lblDescuento" class="green">-$0.00</span></div>
+      <div class="trow main"><span>TOTAL</span><span id="lblTotal" class="green">$0.00</span></div>
+    </div>
+    <button class="btn-generar" id="btnCobrar" type="button" disabled>💵 Continuar al cobro</button>
+    <button class="btn-danger" id="btnLimpiar" type="button">🗑 Limpiar venta</button>
+  </section>
+
+  <!-- ═════════ COLUMNA DERECHA: TURNO ═════════ -->
+  <aside class="col-side">
+    <div class="card">
+      <div class="sec-title">Turno</div>
+      <dl class="kv">
+        <dt>Vendedora</dt><dd id="tVendedor">—</dd>
+        <dt>Sucursal</dt><dd id="tSucursal">—</dd>
+        <dt>Entrada</dt><dd id="tEntrada">—</dd>
+        <dt>Fondo inicial</dt><dd id="tFondo">—</dd>
+        <dt>Modalidad</dt><dd><span id="tModalidad" class="pill">—</span></dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <div class="sec-title green">Resumen del turno</div>
+      <div class="stats">
+        <div><span class="muted small">Ventas</span><b id="rNum">0</b></div>
+        <div><span class="muted small">Total vendido</span><b id="rTotal" class="green">$0.00</b></div>
+      </div>
+      <div class="trow small"><span>Descuentos otorgados</span><span id="rDesc">$0.00</span></div>
+      <button class="btn-corte" id="btnCierre" type="button">🔒 Cerrar turno y hacer corte</button>
+    </div>
+
+    <div class="card">
+      <div class="sec-title">🧾 Historial del turno</div>
+      <div id="historial" class="historial"><div class="empty small">Sin ventas aún</div></div>
+    </div>
+
+    <div class="card sync-card">
+      <div class="sec-title">Sincronización</div>
+      <p class="small" id="syncMsg">—</p>
+      <button type="button" class="btn-ghost" id="btnCsv">⬇ Descargar ventas (CSV)</button>
+    </div>
+  </aside>
+</main>
+
+<!-- ═════════ MODAL: INICIAR TURNO ═════════ -->
+<div class="modal" id="modalTurno" hidden>
+  <form class="modal-box" id="formTurno" autocomplete="off" novalidate>
+    <div class="icon">💊</div>
+    <h2>Iniciar turno</h2>
+    <p class="muted">Farmacia JN · <span id="mtSucursal"></span></p>
+    <label class="lbl-sm" for="mtNombre">Tu nombre</label>
+    <input id="mtNombre" type="text" maxlength="30" list="listaNombres">
+    <datalist id="listaNombres"></datalist>
+    <label class="lbl-sm" for="mtFondo">Fondo inicial de caja ($)</label>
+    <input id="mtFondo" type="text" inputmode="decimal" placeholder="0.00">
+    <div class="lbl-sm">Modalidad de precio de este turno</div>
+    <div class="modes">
+      <label class="mode"><input type="radio" name="modalidad" value="normal" checked><span><b>Precio normal</b><small>Todo el turno</small></span></label>
+      <label class="mode"><input type="radio" name="modalidad" value="descuento"><span><b>Descuento 25%</b><small>Todo el turno</small></span></label>
+    </div>
+    <p class="muted small">No se puede cambiar después de iniciar el turno.</p>
+    <div id="mtError" class="error" hidden></div>
+    <button class="btn-primary" type="submit">Iniciar turno</button>
+  </form>
+</div>
+
+<!-- ═════════ MODAL: COBRO ═════════ -->
+<div class="modal" id="modalCobro" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-label="Cobro">
+    <div id="cobroForm">
+      <h2>Cobro</h2>
+      <div class="big-total"><span class="muted">Total a pagar</span><b id="cTotal">$0.00</b></div>
+      <label class="lbl-sm" for="cRecibido">Efectivo recibido ($)</label>
+      <input id="cRecibido" type="text" inputmode="decimal" placeholder="0.00" autocomplete="off">
+      <div class="quick" id="cQuick"></div>
+      <div class="cambio" id="cCambioBox"><span id="cCambioLbl">Cambio</span><b id="cCambio">$0.00</b></div>
+      <div id="cError" class="error" hidden></div>
+      <button class="btn-generar" id="btnConfirmar" type="button" disabled>✅ Confirmar pago</button>
+      <button class="btn-ghost" id="btnVolver" type="button">← Volver a la venta</button>
+    </div>
+    <div id="cobroOk" hidden>
+      <div class="icon">✅</div>
+      <h2>Venta registrada</h2>
+      <div class="big-total"><span class="muted">Entregar de cambio</span><b id="okCambio" class="green">$0.00</b></div>
+      <p class="muted small" id="okInfo"></p>
+      <button class="btn-primary" id="btnNueva" type="button">Nueva venta</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════ MODAL: CIERRE DE TURNO ═════════ -->
+<div class="modal" id="modalCierre" hidden>
+  <div class="modal-box wide" role="dialog" aria-modal="true" aria-label="Cierre de turno">
+    <div id="cierreForm">
+      <h2>Cierre de turno</h2>
+      <dl class="kv" id="cierreResumen"></dl>
+      <label class="lbl-sm" for="cContado">Efectivo contado en caja ($)</label>
+      <input id="cContado" type="text" inputmode="decimal" placeholder="0.00" autocomplete="off">
+      <div class="cambio" id="cDifBox"><span id="cDifLbl">Diferencia</span><b id="cDif">—</b></div>
+      <label class="lbl-sm" for="cQuien">Persona que realiza el corte</label>
+      <input id="cQuien" type="text" maxlength="30">
+      <div id="ciError" class="error" hidden></div>
+      <button class="btn-corte" id="btnCierreOk" type="button" disabled>🔒 Cerrar turno</button>
+      <button class="btn-ghost" id="btnCierreVolver" type="button">← Seguir vendiendo</button>
+    </div>
+    <div id="cierreOk" hidden>
+      <div class="icon">🔒</div>
+      <h2>Turno cerrado</h2>
+      <dl class="kv" id="cierreFinal"></dl>
+      <button class="btn-ghost" id="btnCsvTurno" type="button">⬇ Descargar ventas del turno (CSV)</button>
+      <button class="btn-primary" id="btnNuevoTurno" type="button">Iniciar nuevo turno</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status"></div>
+
+<script src="calc.js"></script>
+<script src="db.js"></script>
+<script src="search.js"></script>
+<script src="scanner.js"></script>
+<script src="venta.js"></script>
+</body>
+</html>

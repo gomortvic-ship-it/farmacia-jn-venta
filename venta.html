@@ -31,11 +31,12 @@
     <div class="card search-box">
       <label class="lbl-accent" for="buscador">🔍 Buscar producto</label>
       <div class="row">
-        <input type="search" id="buscador" placeholder="Nombre o código de barras…" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+        <input type="search" id="buscador" placeholder="Nombre, sustancia o código de barras…" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
         <button class="btn-scan" id="btnScan" type="button" aria-label="Escanear código de barras">📷</button>
       </div>
       <div id="estadoBusqueda" class="muted small" role="status" aria-live="polite"></div>
       <div id="sugerencias" role="listbox" hidden></div>
+      <button type="button" class="btn-donde" id="btnDonde">📍 ¿Dónde va ordenado?</button>
     </div>
 
     <div id="scannerBox" class="card scanner-box" hidden>
@@ -47,6 +48,7 @@
     <div id="productoPanel" class="card prod-panel" hidden>
       <div class="prod-nombre" id="pNombre">—</div>
       <div class="muted small" id="pCodigo">—</div>
+      <div class="ubic" id="pSal"></div>
       <div class="prices">
         <div><span class="muted small">Precio normal</span><b id="pNormal">$0.00</b></div>
         <div><span class="muted small">Con descuento</span><b id="pDesc">$0.00</b></div>
@@ -87,7 +89,7 @@
         <dt>Sucursal</dt><dd id="tSucursal">—</dd>
         <dt>Entrada</dt><dd id="tEntrada">—</dd>
         <dt>Fondo inicial</dt><dd id="tFondo">—</dd>
-        <dt>Modalidad</dt><dd><span id="tModalidad" class="pill">—</span></dd>
+        <dt>Precio de hoy</dt><dd><span id="tModalidad" class="pill">—</span></dd>
       </dl>
     </div>
 
@@ -109,7 +111,7 @@
     <div class="card sync-card">
       <div class="sec-title">Sincronización</div>
       <p class="small" id="syncMsg">—</p>
-      <button type="button" class="btn-ghost" id="btnCsv">⬇ Descargar ventas (CSV)</button>
+      <button type="button" class="btn-ghost" id="btnReporte">📊 Ver reporte de ventas</button>
     </div>
   </aside>
 </main>
@@ -125,12 +127,9 @@
     <datalist id="listaNombres"></datalist>
     <label class="lbl-sm" for="mtFondo">Fondo inicial de caja ($)</label>
     <input id="mtFondo" type="text" inputmode="decimal" placeholder="0.00">
-    <div class="lbl-sm">Modalidad de precio de este turno</div>
-    <div class="modes">
-      <label class="mode"><input type="radio" name="modalidad" value="normal" checked><span><b>Precio normal</b><small>Todo el turno</small></span></label>
-      <label class="mode"><input type="radio" name="modalidad" value="descuento"><span><b>Descuento 25%</b><small>Todo el turno</small></span></label>
-    </div>
-    <p class="muted small">No se puede cambiar después de iniciar el turno.</p>
+    <div class="lbl-sm">Precio de hoy</div>
+    <div class="hoy-box"><span id="mtHoy" class="pill">—</span></div>
+    <p class="muted small">El descuento del 25% se aplica solo los lunes y jueves, según la fecha de este teléfono.</p>
     <div id="mtError" class="error" hidden></div>
     <button class="btn-primary" type="submit">Iniciar turno</button>
   </form>
@@ -179,9 +178,52 @@
       <div class="icon">🔒</div>
       <h2>Turno cerrado</h2>
       <dl class="kv" id="cierreFinal"></dl>
-      <button class="btn-ghost" id="btnCsvTurno" type="button">⬇ Descargar ventas del turno (CSV)</button>
+      <button class="btn-ghost" id="btnReporteTurno" type="button">📊 Ver ventas del turno</button>
       <button class="btn-primary" id="btnNuevoTurno" type="button">Iniciar nuevo turno</button>
     </div>
+  </div>
+</div>
+
+<!-- ═════════ MODAL: ¿DÓNDE VA ORDENADO? ═════════ -->
+<div class="modal" id="modalDonde" hidden>
+  <div class="modal-box wide donde-box" role="dialog" aria-modal="true" aria-label="Dónde va ordenado">
+    <h2>📍 ¿Dónde va ordenado?</h2>
+    <p class="muted small">Escribe el nombre, la sustancia o el código, o escanea el código de barras.</p>
+    <div class="row">
+      <input type="search" id="dTexto" placeholder="Nombre, sustancia o código…" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+      <button class="btn-scan" id="dScan" type="button" aria-label="Escanear código de barras">📷</button>
+    </div>
+    <div id="dScannerBox" class="scanner-box" hidden>
+      <div class="video-wrap"><video id="dVideo" playsinline muted></video><div class="reticle"></div></div>
+      <p id="dScanMsg" class="muted small">Apunta la cámara al código de barras.</p>
+      <button type="button" id="dScanClose" class="btn-ghost">Cerrar cámara</button>
+    </div>
+    <div id="dMsg" class="muted small" role="status" aria-live="polite"></div>
+    <div id="dOpciones" class="d-opciones" hidden></div>
+    <div id="dResultado" hidden>
+      <div class="d-cab">
+        <div class="d-letra" id="dLetra">—</div>
+        <div><div class="muted small">Va en la letra · se guía por:</div><div class="d-sal" id="dSal">—</div></div>
+      </div>
+      <div id="dLista" class="d-lista"></div>
+    </div>
+    <button class="btn-ghost" id="dCerrar" type="button">← Cerrar</button>
+  </div>
+</div>
+
+<!-- ═════════ MODAL: REPORTE DE VENTAS (solo en pantalla) ═════════ -->
+<div class="modal" id="modalReporte" hidden>
+  <div class="modal-box wide rep-box" role="dialog" aria-modal="true" aria-label="Reporte de ventas">
+    <h2>Reporte de ventas</h2>
+    <label class="lbl-sm" for="repFecha">Día</label>
+    <input id="repFecha" type="date">
+    <div class="stats rep-stats">
+      <div><span class="muted small">Ventas</span><b id="repNum">0</b></div>
+      <div><span class="muted small">Total vendido</span><b id="repTotal" class="green">$0.00</b></div>
+    </div>
+    <div class="trow small"><span>Descuentos otorgados</span><span id="repDesc">$0.00</span></div>
+    <div id="repLista" class="historial"></div>
+    <button class="btn-ghost" id="btnRepCerrar" type="button">← Cerrar</button>
   </div>
 </div>
 

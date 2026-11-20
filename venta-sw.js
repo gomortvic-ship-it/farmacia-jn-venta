@@ -2,9 +2,9 @@
    Solo gestiona los archivos de venta.html (no toca index.html / pos.js del sistema anterior).
    Red primero; si no hay conexión usa lo guardado (y marca X-From-Cache para avisar).
    Sube CACHE_VERSION cuando publiques cambios de código. */
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v4';
 const CACHE = 'farmacia-jn-venta-' + CACHE_VERSION;
-const SHELL = ['venta.html', 'venta.css', 'venta.js', 'calc.js', 'db.js', 'search.js', 'scanner.js', 'data.json',
+const SHELL = ['./', 'index.html', 'venta.html', 'venta.css', 'venta.js', 'calc.js', 'db.js', 'search.js', 'scanner.js', 'data.json',
   'manifest-venta.json', 'icon-192.png', 'icon-512.png', 'zxing-library-0.21.3.min.js'];
 const PATHS = new Set(SHELL.map((f) => new URL(f, self.registration.scope).pathname));
 

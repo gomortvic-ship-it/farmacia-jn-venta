@@ -76,14 +76,16 @@
           if (e.all.indexOf(tokens[t]) === -1) { ok = false; break; }
         }
         if (!ok) continue;
+        // Nombre y Sal (sustancia / lugar en el estante) valen igual: así todos los productos de una
+        // misma sustancia (marca o genérico) salen juntos y, al empatar, en el orden del catálogo (= estante).
         if (e.nd.startsWith(q)) { score = 500; match = 'nombre'; }
-        else if (e.ns.startsWith(q)) { score = 400; match = 'sal'; }
+        else if (e.ns.startsWith(q)) { score = 500; match = 'sal'; }
         else if (e.nd.indexOf(q) !== -1) { score = 320; match = 'nombre'; }
-        else if (e.ns.indexOf(q) !== -1) { score = 300; match = 'sal'; }
+        else if (e.ns.indexOf(q) !== -1) { score = 320; match = 'sal'; }
         else if (tokens.every(function (t) { return e.nd.indexOf(t) !== -1; })) { score = 250; match = 'nombre'; }
         else { score = 200; match = 'sal'; }
         // bonus: coincidencia al inicio de una palabra
-        if (tokens.length && (' ' + e.nd).indexOf(' ' + tokens[0]) !== -1) score += 10;
+        if (tokens.length && (' ' + e.all).indexOf(' ' + tokens[0]) !== -1) score += 10;   // nombre o sal: mismo bonus
       }
       res.push({ pos: e.pos, item: e.item, score: score, match: match });
     }

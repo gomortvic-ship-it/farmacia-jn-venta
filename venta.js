@@ -8,6 +8,7 @@
 
   var catalog = [], index = null, turno = null, cart = [], prod = null;
   var suggRes = [], suggActive = -1, timer = null, saving = false, closing = false, saleId = null, lastCierre = null;
+  var saleMod = null, modoVisto = null;   // saleMod: modalidad congelada durante el cobro
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   var toastT;
@@ -26,8 +27,8 @@
       var fromCache = r.headers.get('X-From-Cache') === '1';
       return r.json().then(function (d) { return { d: d, fromCache: fromCache }; });
     }).then(function (res) {
-      // data.json real: CODIGO, PRODUCTO, PRECIO, DESCUENTO (no se modifica; solo se lee)
-      catalog = res.d.map(function (x) { return { codigo: String(x.CODIGO), descripcion: String(x.PRODUCTO), sal: '', precio: Number(x.PRECIO), descuento: Number(x.DESCUENTO) }; });
+      // data.json: CODIGO, SAL (sustancia / cómo está ordenado en el estante), PRODUCTO, PRECIO, DESCUENTO (solo se lee)
+      catalog = res.d.map(function (x) { return { codigo: String(x.CODIGO), descripcion: String(x.PRODUCTO), sal: String(x.SAL || ''), precio: Number(x.PRECIO), descuento: Number(x.DESCUENTO) }; });
       index = OFSearch.buildIndex(catalog);
       $('cacheBanner').hidden = !res.fromCache;
       $('estadoBusqueda').textContent = catalog.length.toLocaleString('es-MX') + ' productos en el catálogo.';
@@ -36,6 +37,10 @@
 
   /* ───────── Turno ───────── */
   function modLabel(m) { return m === 'descuento' ? 'Descuento 25%' : 'Precio normal'; }
+  /** Modalidad de HOY según la fecha del teléfono: lunes y jueves = descuento 25%; otros días = precio normal. */
+  function hoyMod() { return FCalc.modalidadPara(new Date()); }
+  var DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  function hoyTexto() { return modLabel(hoyMod()) + ' · ' + DIAS[new Date().getDay()]; }
 
   function renderTurno() {
     var t = turno;
@@ -44,12 +49,14 @@
     $('tSucursal').textContent = t ? t.sucursal : '—';
     $('tEntrada').textContent = t ? fechaHora(t.horaEntrada) : '—';
     $('tFondo').textContent = t ? F(t.fondoCents) : '—';
-    var p = $('tModalidad'); p.textContent = t ? modLabel(t.modalidad) : '—'; p.className = 'pill' + (t && t.modalidad === 'descuento' ? ' desc' : '');
+    var p = $('tModalidad'); p.textContent = t ? hoyTexto() : '—'; p.className = 'pill' + (t && hoyMod() === 'descuento' ? ' desc' : '');
+    modoVisto = hoyMod();
     $('buscador').disabled = !t; $('btnScan').disabled = !t;
   }
 
   function showTurnoModal() {
     $('mtSucursal').textContent = SUCURSAL; showErr('mtError', '');
+    var h = $('mtHoy'); h.textContent = hoyTexto(); h.className = 'pill' + (hoyMod() === 'descuento' ? ' desc' : '');
     FDB.getMeta('nombres').then(function (n) {
       $('listaNombres').innerHTML = (n || []).map(function (x) { return '<option value="' + esc(x) + '">'; }).join('');
     });
@@ -60,20 +67,19 @@
     e.preventDefault();
     var nombre = $('mtNombre').value.replace(/\s+/g, ' ').trim();
     var fondo = FCalc.parseMoney($('mtFondo').value);
-    var mod = document.querySelector('input[name=modalidad]:checked').value;
     if (!nombre) return showErr('mtError', 'Escribe tu nombre.');
     if (fondo === null) return showErr('mtError', 'Escribe el fondo inicial de caja (por ejemplo 500 o 500.00). Es obligatorio.');
-    var t = { id: FDB.uuid(), sucursal: SUCURSAL, vendedor: nombre, fecha: new Date().toISOString().slice(0, 10), horaEntrada: new Date().toISOString(),
-      fondoCents: fondo, modalidad: mod, dispositivo: (navigator.userAgent || '').slice(0, 120), estado: 'abierto', sync: 'pendiente' };
+    var t = { id: FDB.uuid(), sucursal: SUCURSAL, vendedor: nombre, fecha: ymd(new Date()), horaEntrada: new Date().toISOString(),
+      fondoCents: fondo, dispositivo: (navigator.userAgent || '').slice(0, 120), estado: 'abierto', sync: 'pendiente' };
     FDB.putTurno(t).then(function () { return FDB.setMeta('turnoActivoId', t.id); })
       .then(function () { return FDB.getMeta('nombres'); })
       .then(function (n) { n = n || []; if (n.indexOf(nombre) === -1) n.push(nombre); return FDB.setMeta('nombres', n.slice(-30)); })
-      .then(function () { turno = t; cart = []; prod = null; closeModal('modalTurno'); renderAll(); toast('Turno iniciado · ' + modLabel(mod)); })
+      .then(function () { turno = t; cart = []; prod = null; closeModal('modalTurno'); renderAll(); toast('Turno iniciado · ' + hoyTexto()); })
       .catch(function () { showErr('mtError', 'No se pudo guardar el turno en este dispositivo. No se inició.'); });
   });
 
   /* ───────── Búsqueda ───────── */
-  function precioAplica(p) { return FCalc.unitCents(p, turno ? turno.modalidad : 'normal'); }
+  function precioAplica(p) { return FCalc.unitCents(p, hoyMod()); }
 
   function onInput() {
     clearTimeout(timer); timer = setTimeout(runSearch, 60);
@@ -82,11 +88,11 @@
     var q = $('buscador').value.trim();
     if (!index) return;
     if (!q) { hideSugg(); $('estadoBusqueda').textContent = catalog.length.toLocaleString('es-MX') + ' productos en el catálogo.'; return; }
-    suggRes = OFSearch.search(index, q, 8); suggActive = -1;
+    suggRes = OFSearch.search(index, q, 40); suggActive = -1;
     if (!suggRes.length) { hideSugg(); $('estadoBusqueda').textContent = 'Sin resultados para “' + q + '”.'; return; }
-    $('estadoBusqueda').textContent = suggRes.total + (suggRes.total === 1 ? ' resultado' : ' resultados') + (suggRes.total > suggRes.length ? ' (mostrando ' + suggRes.length + ')' : '');
+    $('estadoBusqueda').textContent = suggRes.total + (suggRes.total === 1 ? ' resultado' : ' resultados') + (suggRes.total > suggRes.length ? ' (mostrando ' + suggRes.length + '; escribe más para acotar)' : '');
     $('sugerencias').innerHTML = suggRes.map(function (r, i) {
-      return '<div class="sug" role="option" data-i="' + i + '"><b>' + esc(r.item.descripcion) + '</b><small>' + esc(r.item.codigo) + ' · <span class="p">' + F(precioAplica(r.item)) + '</span></small></div>';
+      return '<div class="sug" role="option" data-i="' + i + '"><b>' + esc(r.item.descripcion) + '</b><small class="sal">📍 ' + esc(r.item.sal) + '</small><small>' + esc(r.item.codigo) + ' · <span class="p">' + F(precioAplica(r.item)) + '</span></small></div>';
     }).join('');
     $('sugerencias').hidden = false;
   }
@@ -112,7 +118,7 @@
     var q = $('buscador').value.trim(); if (!q || !index) return;
     var byCode = OFSearch.findByCode(index, q);
     if (byCode.length === 1) return selectProd(byCode[0]);
-    var res = OFSearch.search(index, q, 8);
+    var res = OFSearch.search(index, q, 40);
     if (res.length === 1) return selectProd(res[0].pos);
     runSearch();
     toast(res.length ? 'Hay varios productos parecidos: toca el correcto.' : 'No se encontró “' + q + '”.', !res.length);
@@ -123,9 +129,9 @@
     var p = catalog[pos]; if (!p) return;
     prod = p; hideSugg(); $('buscador').value = '';
     $('estadoBusqueda').textContent = '';
-    $('pNombre').textContent = p.descripcion; $('pCodigo').textContent = 'Código: ' + p.codigo;
+    $('pNombre').textContent = p.descripcion; $('pCodigo').textContent = 'Código: ' + p.codigo; $('pSal').textContent = p.sal ? '📍 Ubicación: ' + p.sal : '';
     $('pNormal').textContent = F(FCalc.toCents(p.precio)); $('pDesc').textContent = F(FCalc.toCents(p.descuento));
-    $('pAplica').textContent = F(precioAplica(p)); $('pAplicaLbl').textContent = 'Se cobra (' + (turno.modalidad === 'descuento' ? 'desc. 25%' : 'normal') + ')';
+    $('pAplica').textContent = F(precioAplica(p)); $('pAplicaLbl').textContent = 'Se cobra (' + (hoyMod() === 'descuento' ? 'desc. 25%' : 'normal') + ')';
     $('pCant').value = 1; calcProd(); $('productoPanel').hidden = false;
     $('productoPanel').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     $('pCant').select && $('pCant').select();
@@ -154,7 +160,7 @@
 
   /* ───────── Carrito ───────── */
   function saveDraft() { return turno ? FDB.setMeta('borrador', { turnoId: turno.id, cart: cart }).catch(function () {}) : Promise.resolve(); }
-  function totals() { return FCalc.calcCart(cart, turno ? turno.modalidad : 'normal'); }
+  function totals() { return FCalc.calcCart(cart, saleMod || hoyMod()); }
 
   function renderCart() {
     var t = totals();
@@ -186,7 +192,7 @@
   function openCobro() {
     if (!cart.length || !turno) return;
     var t = totals(); if (t.totalCents <= 0) return toast('El total debe ser mayor a $0.00', true);
-    saleId = FDB.uuid(); saving = false;       // un id por intento de cobro: si se repite, no duplica
+    saleMod = hoyMod(); saleId = FDB.uuid(); saving = false;   // el precio queda fijo durante el cobro       // un id por intento de cobro: si se repite, no duplica
     $('cTotal').textContent = F(t.totalCents); $('cRecibido').value = ''; showErr('cError', '');
     $('cQuick').innerHTML = '<button type="button" data-exact="1">Exacto</button>' + quickVals.map(function (v) { return '<button type="button" data-q="' + v + '">$' + v + '</button>'; }).join('');
     $('cobroForm').hidden = false; $('cobroOk').hidden = true; updCobro(); openModal('modalCobro');
@@ -207,7 +213,7 @@
     var t = totals(); $('cRecibido').value = b.dataset.exact ? (t.totalCents / 100).toFixed(2) : b.dataset.q; updCobro();
   });
   $('btnCobrar').addEventListener('click', openCobro);
-  $('btnVolver').addEventListener('click', function () { closeModal('modalCobro'); });
+  $('btnVolver').addEventListener('click', function () { closeModal('modalCobro'); saleMod = null; renderCart(); });
   $('btnConfirmar').addEventListener('click', confirmarPago);
 
   function confirmarPago() {
@@ -215,20 +221,20 @@
     var t = totals(), rec = FCalc.parseMoney($('cRecibido').value), c = FCalc.calcCobro(t.totalCents, rec);
     if (!c.ok) return;
     saving = true; $('btnConfirmar').disabled = true; $('btnConfirmar').textContent = '⏳ Guardando…'; showErr('cError', '');
-    var venta = { id: saleId, turnoId: turno.id, vendedor: turno.vendedor, sucursal: turno.sucursal, modalidad: turno.modalidad, fecha: new Date().toISOString(),
+    var venta = { id: saleId, turnoId: turno.id, vendedor: turno.vendedor, sucursal: turno.sucursal, modalidad: saleMod || hoyMod(), fecha: new Date().toISOString(),
       items: t.lines, subtotalCents: t.subtotalCents, descuentoCents: t.descuentoCents, totalCents: t.totalCents, recibidoCents: rec, cambioCents: c.cambioCents };
     FDB.addVenta(venta).then(function (r) {
       // Solo aquí (escritura confirmada por IndexedDB) se considera registrada.
       var v = r.venta; cart = []; saveDraft(); renderCart(); refreshSide();
       $('okCambio').textContent = F(v.cambioCents);
       $('okInfo').textContent = 'Folio ' + v.folio + ' · Total ' + F(v.totalCents) + ' · Recibido ' + F(v.recibidoCents) + '. Guardada en este dispositivo.';
-      $('cobroForm').hidden = true; $('cobroOk').hidden = false; saleId = null; saving = false;
+      $('cobroForm').hidden = true; $('cobroOk').hidden = false; saleId = null; saleMod = null; saving = false;
     }).catch(function () {
       saving = false; $('btnConfirmar').textContent = '✅ Confirmar pago'; updCobro();
       showErr('cError', 'No se pudo guardar la venta en este dispositivo. La venta NO se registró. Intenta de nuevo.');
     }).then(function () { $('btnConfirmar').textContent = '✅ Confirmar pago'; });
   }
-  $('btnNueva').addEventListener('click', function () { closeModal('modalCobro'); if (desktop()) $('buscador').focus(); });
+  $('btnNueva').addEventListener('click', function () { closeModal('modalCobro'); saleMod = null; renderCart(); if (desktop()) $('buscador').focus(); });
 
   /* ───────── Resumen, historial, sincronización ───────── */
   function refreshSide() {
@@ -243,38 +249,86 @@
           '<div><span>Recibido ' + F(v.recibidoCents) + '</span><span>Cambio ' + F(v.cambioCents) + '</span></div></div></details>';
       }).join('') + (ventas.length > 15 ? '<div class="empty small">Mostrando las últimas 15 de ' + ventas.length + '</div>' : '') : '<div class="empty small">Sin ventas aún</div>';
       $('syncMsg').textContent = 'Las ventas se guardan en ESTE dispositivo. ' + pend + (pend === 1 ? ' venta pendiente' : ' ventas pendientes') +
-        ' de enviar al servidor (aún no conectado: Etapa 2). No borres los datos del navegador; descarga el CSV como respaldo.';
+        ' de enviar al servidor (aún no conectado). No borres los datos del navegador de este teléfono.';
     });
   }
   function updNet() { var o = navigator.onLine; var c = $('chipRed'); c.textContent = o ? 'En línea' : 'Sin conexión'; c.className = 'chip ' + (o ? 'chip-ok' : 'chip-off'); }
   window.addEventListener('online', updNet); window.addEventListener('offline', updNet); updNet();
 
-  /* ───────── CSV ───────── */
-  function csvCell(v) { v = String(v == null ? '' : v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
-  function pesos(c) { return (c / 100).toFixed(2); }
-  function buildCsv(ventas) {
-    var head = ['Folio', 'Fecha', 'Hora', 'Turno', 'Vendedora', 'Sucursal', 'Modalidad', 'Código', 'Producto', 'Cantidad', 'Precio unitario', 'Importe', 'Subtotal venta', 'Descuento venta', 'Total venta', 'Recibido', 'Cambio', 'Sincronización', 'ID venta'];
-    var rows = [head];
-    ventas.forEach(function (v) {
-      var d = new Date(v.fecha);
-      v.items.forEach(function (it) {
-        rows.push([v.folio, d.toLocaleDateString('es-MX'), d.toLocaleTimeString('es-MX'), v.turnoId, v.vendedor, v.sucursal, modLabel(v.modalidad), it.codigo, it.nombre, it.cantidad,
-          pesos(it.precioUnitCents), pesos(it.importeCents), pesos(v.subtotalCents), pesos(v.descuentoCents), pesos(v.totalCents), pesos(v.recibidoCents), pesos(v.cambioCents), v.sync, v.id]);
-      });
-    });
-    return '﻿' + rows.map(function (r) { return r.map(csvCell).join(','); }).join('\r\n');
+  /* ───────── ¿Dónde va ordenado? ─────────
+     El catálogo está en el mismo orden del estante (por la columna Sal). Se muestra la letra de la Sal
+     del producto buscado y los 5 productos antes y 5 después, con su descripción, para guiarse. */
+  var VECINOS = 5;
+  function letraDe(sal) { var c = OFSearch.normalize(sal).charAt(0).toUpperCase(); return c || '?'; }
+  function dondeMostrar(pos) {
+    var p = catalog[pos]; if (!p) return;
+    var ini = Math.max(0, pos - VECINOS), fin = Math.min(catalog.length - 1, pos + VECINOS);
+    $('dOpciones').hidden = true; $('dOpciones').innerHTML = ''; $('dMsg').textContent = '';
+    $('dLetra').textContent = letraDe(p.sal); $('dSal').textContent = p.sal || '—';
+    var html = '';
+    for (var i = ini; i <= fin; i++) {
+      var x = catalog[i];
+      html += '<div class="nb' + (i === pos ? ' me' : '') + '" data-pos="' + i + '"><b>' + esc(x.descripcion) + (i === pos ? ' ◀ buscado' : '') + '</b><small>📍 ' + esc(x.sal) + ' · ' + esc(x.codigo) + '</small></div>';
+    }
+    $('dLista').innerHTML = html; $('dResultado').hidden = false;
+    var me = $('dLista').querySelector('.me'); if (me && me.scrollIntoView) me.scrollIntoView({ block: 'center' });
   }
-  function download(name, text) {
-    var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' })); a.download = name;
-    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
+  function dondeBuscar() {
+    var q = $('dTexto').value.trim(); $('dResultado').hidden = true;
+    if (!q || !index) { $('dOpciones').hidden = true; $('dMsg').textContent = ''; return; }
+    var byCode = OFSearch.findByCode(index, q);
+    if (byCode.length === 1) return dondeMostrar(byCode[0]);
+    var res = OFSearch.search(index, q, 12);
+    if (!res.length) { $('dOpciones').hidden = true; $('dMsg').textContent = 'No se encontró “' + q + '”.'; return; }
+    if (res.length === 1) return dondeMostrar(res[0].pos);
+    $('dMsg').textContent = res.total + ' resultados' + (res.total > res.length ? ' (mostrando ' + res.length + ')' : '') + ': toca el que buscas.';
+    $('dOpciones').innerHTML = res.map(function (r) { return '<div class="sug" data-pos="' + r.pos + '"><b>' + esc(r.item.descripcion) + '</b><small class="sal">📍 ' + esc(r.item.sal) + '</small></div>'; }).join('');
+    $('dOpciones').hidden = false;
   }
-  $('btnCsv').addEventListener('click', function () {
-    FDB.allVentas().then(function (v) {
-      if (!v.length) return toast('Aún no hay ventas guardadas', true);
-      v.sort(function (a, b) { return a.fecha < b.fecha ? -1 : 1; });
-      download('ventas-farmacia-jn-' + new Date().toISOString().slice(0, 10) + '.csv', buildCsv(v));
-    });
+  function dondeCerrarCamara() { OFScanner.stop(); $('dScannerBox').hidden = true; }
+  function dondeAbrir() {
+    $('dTexto').value = ''; $('dMsg').textContent = ''; $('dOpciones').hidden = true; $('dResultado').hidden = true;
+    openModal('modalDonde'); setTimeout(function () { $('dTexto').focus(); }, 50);
+  }
+  $('btnDonde').addEventListener('click', dondeAbrir);
+  $('dTexto').addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(dondeBuscar, 120); });
+  $('dTexto').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(timer); dondeBuscar(); } });
+  $('dOpciones').addEventListener('click', function (e) { var d = e.target.closest('[data-pos]'); if (d) dondeMostrar(+d.dataset.pos); });
+  $('dLista').addEventListener('click', function (e) { var d = e.target.closest('[data-pos]'); if (d) dondeMostrar(+d.dataset.pos); });   // tocar un vecino lo centra
+  $('dScan').addEventListener('click', function () {
+    if ($('dScannerBox').hidden) {
+      $('dScannerBox').hidden = false; $('dScanMsg').className = 'muted small'; $('dScanMsg').textContent = 'Iniciando cámara… acepta el permiso si lo pide.';
+      OFScanner.start($('dVideo'), function (code) {
+        dondeCerrarCamara(); $('dTexto').value = code;
+        var f = OFSearch.findByCode(index, code);
+        if (f.length === 1) dondeMostrar(f[0]); else if (f.length > 1) dondeBuscar(); else { $('dResultado').hidden = true; $('dMsg').textContent = 'Código no encontrado: ' + code; }
+      }, function (m) { $('dScanMsg').className = 'err small'; $('dScanMsg').textContent = m; });
+      $('dVideo').addEventListener('playing', function once() { $('dVideo').removeEventListener('playing', once); $('dScanMsg').textContent = 'Apunta la cámara al código de barras.'; });
+    } else dondeCerrarCamara();
   });
+  $('dScanClose').addEventListener('click', dondeCerrarCamara);
+  $('dCerrar').addEventListener('click', function () { dondeCerrarCamara(); closeModal('modalDonde'); });
+
+  /* ───────── Reporte de ventas (solo en pantalla, no descarga nada) ───────── */
+  function ymd(d) { var m = d.getMonth() + 1, dd = d.getDate(); return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (dd < 10 ? '0' : '') + dd; }
+  function renderReporte() {
+    var dia = $('repFecha').value || ymd(new Date());
+    FDB.allVentas().then(function (todas) {
+      var ventas = todas.filter(function (v) { return ymd(new Date(v.fecha)) === dia; })
+        .sort(function (a, b) { return a.fecha < b.fecha ? 1 : -1; });
+      var c = FCalc.calcCorte(0, ventas, null);
+      $('repNum').textContent = c.numVentas; $('repTotal').textContent = F(c.totalCents); $('repDesc').textContent = F(c.descuentoCents);
+      $('repLista').innerHTML = ventas.length ? ventas.map(function (v) {
+        return '<details class="hv"><summary><span>' + esc(v.folio) + ' · ' + hora(v.fecha) + ' · ' + esc(v.vendedor) + (v.modalidad === 'descuento' ? ' · 25%' : '') + '</span><b>' + F(v.totalCents) + '</b></summary><div class="items">' +
+          v.items.map(function (it) { return '<div><span>' + esc(it.nombre.slice(0, 38)) + ' ×' + it.cantidad + '</span><span>' + F(it.importeCents) + '</span></div>'; }).join('') +
+          '<div><span>Recibido ' + F(v.recibidoCents) + '</span><span>Cambio ' + F(v.cambioCents) + '</span></div></div></details>';
+      }).join('') : '<div class="empty small">No hay ventas en este día</div>';
+    }).catch(function () { $('repLista').innerHTML = '<div class="empty small">No se pudo leer el almacenamiento de este dispositivo.</div>'; });
+  }
+  function abrirReporte(dia) { $('repFecha').value = dia || ymd(new Date()); renderReporte(); openModal('modalReporte'); }
+  $('btnReporte').addEventListener('click', function () { abrirReporte(); });
+  $('repFecha').addEventListener('change', renderReporte);
+  $('btnRepCerrar').addEventListener('click', function () { closeModal('modalReporte'); });
 
   /* ───────── Cierre de turno / corte ───────── */
   function kvRows(c, extra) {
@@ -289,7 +343,7 @@
     FDB.ventasDeTurno(turno.id).then(function (ventas) {
       cierreCalc = { ventas: ventas };
       var c = FCalc.calcCorte(turno.fondoCents, ventas, null);
-      $('cierreResumen').innerHTML = kvRows(c, [['Modalidad', modLabel(turno.modalidad)]]);
+      $('cierreResumen').innerHTML = kvRows(c);
       $('cContado').value = ''; $('cQuien').value = turno.vendedor; showErr('ciError', ''); updCierre();
       $('cierreForm').hidden = false; $('cierreOk').hidden = true; openModal('modalCierre'); setTimeout(function () { $('cContado').focus(); }, 50);
     });
@@ -318,10 +372,7 @@
       $('cierreForm').hidden = true; $('cierreOk').hidden = false; closing = false; renderAll();
     }).catch(function () { closing = false; $('btnCierreOk').disabled = false; showErr('ciError', 'No se pudo guardar el cierre. El turno sigue abierto. Intenta de nuevo.'); });
   });
-  $('btnCsvTurno').addEventListener('click', function () {
-    if (!lastCierre) return;
-    FDB.ventasDeTurno(lastCierre.id).then(function (v) { if (!v.length) return toast('Ese turno no tuvo ventas', true); download('turno-' + lastCierre.fecha + '-' + lastCierre.vendedor.replace(/\W+/g, '_') + '.csv', buildCsv(v)); });
-  });
+  $('btnReporteTurno').addEventListener('click', function () { if (!lastCierre) return; closeModal('modalCierre'); abrirReporte(ymd(new Date(lastCierre.horaEntrada))); });
   $('btnNuevoTurno').addEventListener('click', function () { closeModal('modalCierre'); showTurnoModal(); });
 
   /* ───────── Escáner ───────── */
@@ -341,6 +392,17 @@
     if (f.length > 1) { $('buscador').value = code; runSearch(); return toast('Ese código está en varios productos: elige uno.'); }
     toast('Código no encontrado: ' + code, true);
   }
+
+  /* Si cambia el día con la app abierta (por ejemplo pasa de miércoles a jueves), se actualizan los precios. */
+  function vigilaDia() {
+    if (modoVisto === null || hoyMod() === modoVisto) return;
+    renderTurno(); renderCart();
+    if (prod) { $('pAplica').textContent = F(precioAplica(prod)); $('pAplicaLbl').textContent = 'Se cobra (' + (hoyMod() === 'descuento' ? 'desc. 25%' : 'normal') + ')'; calcProd(); }
+    toast('Hoy: ' + hoyTexto());
+  }
+  setInterval(vigilaDia, 30000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) vigilaDia(); });
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
 
   /* ───────── Arranque ───────── */
   function renderAll() {

@@ -25,6 +25,14 @@
     return toCents(modalidad === 'descuento' ? prod.descuento : prod.precio);
   }
 
+  /** Modalidad según el día de la semana de la fecha dada (hora local del teléfono):
+   *  lunes (1) y jueves (4) → 'descuento'; cualquier otro día → 'normal'. */
+  function modalidadPara(fecha) {
+    var d = fecha instanceof Date ? fecha : new Date(fecha);
+    var dia = d.getDay();
+    return (dia === 1 || dia === 4) ? 'descuento' : 'normal';
+  }
+
   function clampQty(q) {
     q = parseInt(q, 10);
     if (!isFinite(q) || q < 1) return 1;
@@ -70,6 +78,6 @@
     return r;
   }
 
-  return { toCents: toCents, parseMoney: parseMoney, fmt: fmt, unitCents: unitCents, clampQty: clampQty,
+  return { toCents: toCents, parseMoney: parseMoney, fmt: fmt, unitCents: unitCents, modalidadPara: modalidadPara, clampQty: clampQty,
     calcCart: calcCart, calcCobro: calcCobro, calcCorte: calcCorte };
 });
